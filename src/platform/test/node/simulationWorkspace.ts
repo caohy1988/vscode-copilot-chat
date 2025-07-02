@@ -426,15 +426,23 @@ export class SimulationWorkspace {
 	}
 
 	public applyEdits(uri: vscode.Uri, edits: vscode.TextEdit[], initialRange?: vscode.Range): vscode.Range {
+		let range: vscode.Range;
+
 		if (uri.toString() === this.currentEditor?.value.document.uri.toString()) {
-			return this._applyEditsOnCurrentEditor(this.currentEditor, edits, initialRange);
+			range = this._applyEditsOnCurrentEditor(this.currentEditor, edits, initialRange);
+		} else {
+			const { range: resultRange } = applyEdits(
+				this.getDocument(uri),
+				edits,
+				initialRange ?? new Range(0, 0, 0, 0),
+				new Range(0, 0, 0, 0)
+			);
+			range = resultRange;
 		}
-		const { range } = applyEdits(
-			this.getDocument(uri),
-			edits,
-			initialRange ?? new Range(0, 0, 0, 0),
-			new Range(0, 0, 0, 0)
-		);
+
+		// Write the updated content to disk
+		this._writeDocumentToDisk(uri);
+
 		return range;
 	}
 
@@ -444,6 +452,11 @@ export class SimulationWorkspace {
 			edits,
 			this
 		);
+
+		// Write the updated notebook content to disk if it has a corresponding text document
+		if (this.hasDocument(uri)) {
+			this._writeDocumentToDisk(uri);
+		}
 	}
 
 	private _applyEditsOnCurrentEditor(editor: ExtHostTextEditor, edits: vscode.TextEdit[], initialRange: vscode.Range | undefined): vscode.Range {
@@ -455,6 +468,18 @@ export class SimulationWorkspace {
 		);
 		editor._acceptSelections([selection]);
 		return range;
+	}
+
+	private _writeDocumentToDisk(uri: vscode.Uri): void {
+		try {
+			const doc = this.getDocument(uri);
+			const mappedLocation = this.mapLocation(uri, true);
+			if (mappedLocation.scheme === 'file') {
+				fs.writeFileSync(mappedLocation.fsPath, doc.getText(), 'utf8');
+			}
+		} catch (error) {
+			console.error('Failed to write document to disk:', error);
+		}
 	}
 
 	public mapLocation(uri: Uri, forWriting = false): URI {

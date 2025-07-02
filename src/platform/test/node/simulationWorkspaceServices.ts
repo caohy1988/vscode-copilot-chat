@@ -728,11 +728,61 @@ export class TestingGitService implements IGitService {
 	}
 
 	async diffBetween(uri: URI, ref1: string, ref2: string): Promise<Change[]> {
-		return [];
+		try {
+			const mappedLocation = this._workspace.mapLocation(uri);
+			if (mappedLocation.scheme !== 'file') {
+				return [];
+			}
+
+			const execPromise = promisify(exec);
+			const relativePath = mappedLocation.fsPath.substring(this._workspace.mapLocation(this._workspace.workspaceFolders[0]).fsPath.length + 1);
+			const result = await execPromise(`git diff ${ref1} ${ref2} -- "${relativePath}"`, {
+				cwd: this._workspace.mapLocation(this._workspace.workspaceFolders[0]).fsPath
+			});
+
+			// Parse git diff output into changes - basic implementation
+			if (result.stdout) {
+				return [{
+					uri: uri,
+					originalUri: uri,
+					renameUri: undefined,
+					status: 6
+				}];
+			}
+			return [];
+		} catch (error) {
+			console.error('Git diffBetween failed:', error);
+			return [];
+		}
 	}
 
 	async diffWith(uri: vscode.Uri, ref: string): Promise<Change[] | undefined> {
-		return undefined;
+		try {
+			const mappedLocation = this._workspace.mapLocation(uri);
+			if (mappedLocation.scheme !== 'file') {
+				return undefined;
+			}
+
+			const execPromise = promisify(exec);
+			const relativePath = mappedLocation.fsPath.substring(this._workspace.mapLocation(this._workspace.workspaceFolders[0]).fsPath.length + 1);
+			const result = await execPromise(`git diff ${ref} -- "${relativePath}"`, {
+				cwd: this._workspace.mapLocation(this._workspace.workspaceFolders[0]).fsPath
+			});
+
+			// Parse git diff output into changes - basic implementation
+			if (result.stdout) {
+				return [{
+					uri: uri,
+					originalUri: uri,
+					renameUri: undefined,
+					status: 6
+				}];
+			}
+			return [];
+		} catch (error) {
+			console.error('Git diffWith failed:', error);
+			return undefined;
+		}
 	}
 
 	async fetch(uri: URI, remote?: string, ref?: string, depth?: number): Promise<void> {

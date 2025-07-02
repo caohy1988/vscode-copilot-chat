@@ -83,7 +83,7 @@ export class AgentPrompt extends PromptElement<AgentPromptProps> {
 	async render(state: void, sizing: PromptSizing) {
 		const instructions = this.configurationService.getConfig(ConfigKey.Internal.SweBenchAgentPrompt) ?
 			<SweBenchAgentPrompt availableTools={this.props.promptContext.tools?.availableTools} modelFamily={this.props.endpoint.family} codesearchMode={undefined} /> :
-			<DefaultAgentPrompt
+			<SweBenchAgentPrompt
 				availableTools={this.props.promptContext.tools?.availableTools}
 				modelFamily={this.props.endpoint.family}
 				codesearchMode={this.props.codesearchMode}

@@ -227,19 +227,23 @@ export class SweBenchAgentPrompt extends PromptElement<DefaultAgentPromptProps> 
 			<Tag name="searchInstructions">
 				When searching for information in the codebase, follow these guidelines:<br />
 
-				1. For finding specific files:<br />
+				1. Always start with a {ToolName.Codebase} search to get an overview of relevant files and locations.
+
+				2. For finding specific files:<br />
 				- Use {ToolName.FindFiles} when you know the exact file name or a clear pattern<br />
 				- Example: Use this to locate files you need to edit or view<br />
 
-				2. For locating specific code elements:<br />
+				3. For locating specific code elements:<br />
 				- Use {ToolName.FindTextInFiles} when searching for exact strings<br />
 				- Best for finding class names, function names, or specific code patterns<br />
 
-				3. For efficiency with multiple searches:<br />
+				4. For efficiency with multiple searches:<br />
 				- You may call {ToolName.FindFiles} and {ToolName.FindTextInFiles} in parallel<br />
 
-				4. Fallback search strategy:<br />
-				- Try your best to use {ToolName.FindFiles} first<br />
+				5. Fallback search strategy:<br />
+				- At beginning, try your best to use {ToolName.Codebase} first<br />
+				- For finding specific files, use {ToolName.FindFiles}<br />
+				- For finding specific code elements, use {ToolName.FindTextInFiles}<br />
 				- If these searches fail to find what you need, use bash commands via {ToolName.RunInTerminal}<br />
 				- Example: `find . -name "*.py" | xargs grep -l "function_name"` or `grep -r "search_term" .`<br />
 
