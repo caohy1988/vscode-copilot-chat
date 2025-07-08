@@ -265,6 +265,7 @@ export class AgentUserMessage extends PromptElement<AgentUserMessageProps> {
 			' (See <attachments> above for file contents. You may not need to search or read the file again.)'
 			: '';
 		const hasToolsToEditNotebook = hasCreateFileTool || hasEditNotebookTool || hasReplaceStringTool || hasApplyPatchTool || hasEditFileTool;
+
 		return (
 			<>
 				<UserMessage>
@@ -282,13 +283,18 @@ export class AgentUserMessage extends PromptElement<AgentUserMessageProps> {
 					</Tag>
 					<CurrentEditorContext endpoint={this.props.endpoint} />
 					<RepoContext />
+					<UserPreferences flexGrow={7} priority={800} />
 					<Tag name='reminderInstructions'>
 						{/* Critical reminders that are effective when repeated right next to the user message */}
 						{getKeepGoingReminder(this.props.endpoint.family)}
 						{getEditingReminder(hasEditFileTool, hasReplaceStringTool)}
 						<NotebookReminderInstructions chatVariables={this.props.chatVariables} query={this.props.request} />
 					</Tag>
-					{query && <Tag name='userRequest' priority={900} flexGrow={7}>{query + attachmentHint}</Tag>}
+					<SweBenchUserRequestContent
+						query={query}
+						attachmentHint={attachmentHint}
+						endpoint={this.props.endpoint}
+					/>
 					{this.props.enableCacheBreakpoints && <cacheBreakpoint type={CacheType} />}
 				</UserMessage>
 			</>
@@ -672,4 +678,99 @@ export function getAgentInstructions(
 			modelFamily={modelFamily}
 			codesearchMode={codesearchMode ?? false}
 		/>;
+}
+
+interface SweBenchUserRequestContentProps extends BasePromptElementProps {
+	readonly query: string | undefined;
+	readonly attachmentHint: string;
+	readonly endpoint: IChatEndpoint;
+}
+
+/**
+ * Specialized user request content for SWE-Bench scenarios
+ */
+class SweBenchUserRequestContent extends PromptElement<SweBenchUserRequestContentProps> {
+	constructor(
+		props: SweBenchUserRequestContentProps,
+		@IWorkspaceService private readonly workspaceService: IWorkspaceService,
+		@IConfigurationService private readonly configurationService: IConfigurationService,
+	) {
+		super(props);
+	}
+
+	async render(state: void, sizing: PromptSizing) {
+		const query = this.props.query;
+		if (!query) {
+			return;
+		}
+
+		// Check if SWE-Bench mode is enabled
+		const isSweBenchMode = this.configurationService.getConfig(ConfigKey.Internal.SweBenchAgentPrompt);
+		if (!isSweBenchMode) {
+			// Default behavior for non-SWE-Bench mode
+			return <Tag name='userRequest' priority={900} flexGrow={7}>{query + this.props.attachmentHint}</Tag>;
+		}
+
+		// Get workspace path dynamically for SWE-Bench mode
+		const folders = this.workspaceService.getWorkspaceFolders();
+		const repoPath = folders.length > 0 ? folders[0].fsPath : '/workspace';
+		const tmpSWEBenchPath = `${repoPath}/tmp_swe_bench`;
+
+		return <Tag name='userRequest' priority={900} flexGrow={7}>
+			I've uploaded a python code repository in the directory {repoPath} (not in {tmpSWEBenchPath} or /tmp/input). Consider the following PR description: <br />
+
+			&lt;pr_description&gt; <br />
+			{query} <br />
+			&lt;/pr_description&gt; <br />
+
+			Can you help me implement the necessary changes to the repository so that the requirements specified in the &lt;pr_description&gt; are met? <br />
+			I've already taken care of all changes to any of the test files described in the &lt;pr_description&gt;. This means you DON'T have to modify the testing logic or any of the tests in any way! <br />
+
+			Your task is to make the minimal changes to non-tests files in the {repoPath} directory to ensure the &lt;pr_description&gt; is satisfied. <br />
+
+			Follow these steps to resolve user's issue:<br />
+			1. INITIALIZE GIT: Start by running `git init` in {repoPath} using {ToolName.RunInTerminal} to initialize a Git repository for tracking your changes.<br />
+			2. Start with exploring the repo structure thoroughly to understand the codebase before making changes. Use {ToolName.RunInTerminal} to explore the directory and get familiar with the folder structure.<br />
+			3. Create a well-documented Python script in {tmpSWEBenchPath} to reproduce the issue described in the pr_description.<br />
+			4. CRITICAL - ISSUE REPRODUCTION: Execute the reproduce script using the {ToolName.RunInTerminal} tool, for example `python {tmpSWEBenchPath}/reproduce.py` to confirm the issue can be reproduced. Document the exact error output or behavior that demonstrates the issue. This script will be your primary testing tool throughout the fixing process.<br />
+			5. Before making any code changes, use the {ToolName.ReadFile} tool to read and understand all relevant code blocks that might be affected by your fix.<br />
+			6. DEVELOP TEST CASES: Extend your reproduce script to include comprehensive tests that cover not only the original issue but also potential edge cases. These tests should initially fail, confirming they properly detect the issue.<br />
+			7. IMPORTANT - STAGE FILES BEFORE EDITING: For each file you plan to modify, first add it to Git staging using {ToolName.RunInTerminal} with a command like `git add {repoPath}/target_file.py`. Do this only once per file before any editing.<br />
+			8. ITERATIVE FIX DEVELOPMENT: Begin by modifying your reproduce script to implement potential fixes. Use this as your development environment to understand the root cause and develop a working solution. Run the script frequently to see if your changes resolve the issue and pass the tests you've created.<br />
+			9. Learn from test failures and use {ToolName.Think} to document your understanding of why certain approaches fail and what insights they provide about the root cause.<br />
+			10. Continue refining your solution in the reproduce script until ALL tests pass consistently, including the edge cases you've defined. This confirms you have a working fix.<br />
+			11. APPLY SUCCESSFUL FIX: Once you have a working fix in your reproduce script, carefully apply the correct fix to the source code in {repoPath} using edit_file tool.<br />
+			12. CRITICAL - VERIFY CHANGES WITH GIT DIFF: After using the edit_file tool to edit source files for examples like target_file.py in {repoPath}, immediately run {ToolName.RunInTerminal} with command `git diff {repoPath}/target_file.py` to verify your changes have been correctly applied. This diff check is essential to ensure the expected modifications were properly applied.<br />
+			13. VALIDATION: Run your reproduce script again to confirm that the actual source code fix works correctly. All tests should pass with the final updated reproduce script.<br />
+			14. PERSIST UNTIL RESOLVED: Never give up on fixing issues. If tests continue to fail after multiple attempts, try different approaches and solutions based on what you've learned from previous attempts.<br />
+			15. DO NOT ASSUME LIMITATIONS: If one approach doesn't work, try alternative solutions. Use edit_file tool to modify both your implementation based on failures and emerging understanding from {ToolName.Think}.<br />
+			16. SYNCHRONIZATION CHECK: Regularly use the `git diff` command throughout the process to ensure that successful fixes in your reproducing script in {tmpSWEBenchPath} are correctly synchronized with the actual source code in {repoPath}.<br />
+			17. FINAL VALIDATION WITH GIT DIFF: Before considering the task complete, you must use `git diff` in {ToolName.RunInTerminal} to review all files you have edited in {repoPath} outside of {tmpSWEBenchPath} to verify that the final successful fix validated by reproducing script has been correctly applied to all the corresponding files.<br />
+			18. CLEAN UP AFTER SUCCESS: Delete the {tmpSWEBenchPath} folder after confirming the issue is fixed and validated. Use {ToolName.RunInTerminal} with command `rm -rf {tmpSWEBenchPath}` to clean up all temp files you created during the whole process.<br />
+			19. SUMMARIZE THE CHANGE: Provide a detailed summary of all changes made to {repoPath}, explaining how they address the issue in the pr_description and handle edge cases. Include the `git diff` output to clearly show what modifications were made. Do not include details about testing scripts in this summary.<br />
+
+			Important Notes: <br />
+			- Remember to initialize Git with `git init` at the beginning of your work.<br />
+			- Remember to run the reproduce script in {tmpSWEBenchPath} folder directly in the terminal via {ToolName.RunInTerminal}.<br />
+			- You are only allowed to create new files in the {tmpSWEBenchPath} folder. Do not create any new files under {repoPath}.<br />
+			- Before editing any file, make sure to add it to Git staging using `git add` for later comparison.<br />
+			- After each edit, must use `git diff` to verify that your changes were applied correctly.<br />
+			- You must clean up all the temporary files you created in the {tmpSWEBenchPath} folder after confirming the issue is fixed and validating the fix is correct.<br />
+
+			Most Important Instructions: <br />
+			1. Before creating the issue reproduction script, make sure you run `git init` in {repoPath} and `mkdir -p {tmpSWEBenchPath}` in {ToolName.RunInTerminal} to initialize Git and create the temporary folder.<br />
+			2. Make sure you fully understand the issue described in pr_description and can confidently reproduce it via your script.<br />
+			3. For each file you plan to modify, add it to Git staging using `git add {repoPath}/target_file.py` before making any edits. You must do it only once for each file before starting editing.<br />
+			4. Create comprehensive test cases in your reproduction script to cover both the described issue and potential edge cases.<br />
+			5. After you have used edit_file tool to edit a target_file in {repoPath} outside of {tmpSWEBenchPath}, you must immediately use `git diff` command like `git diff {repoPath}/target_file.py` to verify that your edits were correctly applied to the target_file.<br />
+			6. Ensure the reproduction script passes all tests after applying the final fix.<br />
+			7. MUST DO: Before making your final summary, you must use `git diff` command in {ToolName.RunInTerminal} to review all files you have edited in {repoPath} outside of {tmpSWEBenchPath} to verify that the final successful fix validated by reproducing script has been correctly applied to all the corresponding files.<br />
+			8. Never give up your attempts until you find a successful fix validated by both your reproduction script and `git diff` comparisons.<br />
+			9. Always respond with using at least one tool calling before you think the tasks has been finished. Only the last response with final summary can be response with no tool calling. <br />
+			10. If the response in your previous turn does not contain any tool calling, you must use tool calling in your next response besides the response with final summary. <br />
+			11. Never Never Never Give UP Your Efforts and Stopped in the Middle of Your Process.<br />
+			12. Before your made your final summary, always delete the temp files in {tmpSWEBenchPath} folder. <br />
+			{this.props.attachmentHint}
+		</Tag>;
+	}
 }
